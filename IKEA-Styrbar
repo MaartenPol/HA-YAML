@@ -1,0 +1,168 @@
+blueprint:
+  name: ZHA - IKEA Styrbar (Dimmer & Color/Färg)
+  description: >
+    **English:** Simple and stable control for IKEA Styrbar (N2) in ZHA.
+    - Up (Short): Turn On
+    - Up (Hold): Dim Up
+    - Down (Short): Turn Off
+    - Down (Hold): Dim Down
+    - Left: Warm White (Configurable)
+    - Right: Cold White (Configurable)
+
+    **Svenska:** Enkel och stabil styrning för IKEA Styrbar (N2) i ZHA.
+    - Upp (Kort): Tänd
+    - Upp (Håll): Dimra upp
+    - Ner (Kort): Släck
+    - Ner (Håll): Dimra ner
+    - Vänster: Varmvitt (Inställbart)
+    - Höger: Kallvitt (Inställbart)
+
+  domain: automation
+
+  input:
+    remote:
+      name: Remote Control / Fjärrkontroll
+      description: >
+        Select your IKEA Styrbar (Remote Control N2). /
+        Välj din IKEA Styrbar.
+      selector:
+        device:
+          integration: zha
+          model: Remote Control N2
+
+    light:
+      name: Light / Lampa
+      description: >
+        The light(s) to control. / Lampan som ska styras.
+      selector:
+        entity:
+          domain: light
+
+    warm_temp:
+      name: Warm Color (Left) / Varm Färg (Vänster)
+      description: >
+        Kelvin value for Left arrow. / Kelvin-värde för vänsterpil.
+        (Default/Standard: 2200K)
+      default: 2200
+      selector:
+        number:
+          min: 2000
+          max: 4000
+          step: 100
+          unit_of_measurement: "K"
+          mode: slider
+
+    cold_temp:
+      name: Cold Color (Right) / Kall Färg (Höger)
+      description: >
+        Kelvin value for Right arrow. / Kelvin-värde för högerpil.
+        (Default/Standard: 4000K)
+      default: 4000
+      selector:
+        number:
+          min: 3000
+          max: 6500
+          step: 100
+          unit_of_measurement: "K"
+          mode: slider
+
+mode: restart
+max_exceeded: silent
+
+trigger:
+  - platform: event
+    event_type: zha_event
+    event_data:
+      device_id: !input remote
+
+action:
+  - variables:
+      command: "{{ trigger.event.data.command }}"
+      args: "{{ trigger.event.data.args }}"
+      warm_k: !input warm_temp
+      cold_k: !input cold_temp
+
+  - choose:
+
+      # --- ENGLISH: SHORT PRESS UP → TURN ON ---
+      # --- SVENSKA: KORT TRYCK UPP → TÄND ---
+      - conditions:
+          - "{{ command == 'on' }}"
+        sequence:
+          - service: light.turn_on
+            target:
+              entity_id: !input light
+
+      # --- ENGLISH: SHORT PRESS DOWN → TURN OFF ---
+      # --- SVENSKA: KORT TRYCK NER → SLÄCK ---
+      - conditions:
+          - "{{ command == 'off' }}"
+        sequence:
+          - service: light.turn_off
+            target:
+              entity_id: !input light
+
+      # --- ENGLISH: HOLD UP → DIM UP ---
+      # --- SVENSKA: HÅLL IN UPP → DIMRA UPP ---
+      - conditions:
+          - "{{ command == 'move_with_on_off' }}"
+        sequence:
+          - repeat:
+              count: 20
+              sequence:
+                - service: light.turn_on
+                  target:
+                    entity_id: !input light
+                  data:
+                    brightness_step_pct: 15
+                    transition: 0.5
+                - delay: "00:00:00.500"
+
+      # --- ENGLISH: HOLD DOWN → DIM DOWN ---
+      # --- SVENSKA: HÅLL IN NER → DIMRA NER ---
+      - conditions:
+          - "{{ command == 'move' }}"
+        sequence:
+          - repeat:
+              count: 20
+              sequence:
+                - service: light.turn_on
+                  target:
+                    entity_id: !input light
+                  data:
+                    brightness_step_pct: -15
+                    transition: 0.5
+                - delay: "00:00:00.500"
+
+      # --- ENGLISH: LEFT ARROW → WARM WHITE ---
+      # --- SVENSKA: VÄNSTER PIL → VARMVITT ---
+      - conditions:
+          - "{{ command == 'press' }}"
+          - "{{ args[0] == 257 }}"
+        sequence:
+          - service: light.turn_on
+            target:
+              entity_id: !input light
+            data:
+              color_temp_kelvin: "{{ warm_k }}"
+              transition: 1
+
+      # --- ENGLISH: RIGHT ARROW → COLD WHITE ---
+      # --- SVENSKA: HÖGER PIL → KALLVITT ---
+      - conditions:
+          - "{{ command == 'press' }}"
+          - "{{ args[0] == 256 }}"
+        sequence:
+          - service: light.turn_on
+            target:
+              entity_id: !input light
+            data:
+              color_temp_kelvin: "{{ cold_k }}"
+              transition: 1
+
+      # --- ENGLISH: RELEASE BUTTON → STOP ---
+      # --- SVENSKA: SLÄPP KNAPP → STOPP ---
+      - conditions:
+          - "{{ command in ['stop', 'stop_with_on_off'] }}"
+        sequence:
+          - delay: "00:00:00.100"
